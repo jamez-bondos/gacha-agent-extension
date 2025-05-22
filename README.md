@@ -38,6 +38,12 @@ pnpm install
 pnpm dev
 ```
 
+4. 构建：
+
+```bash
+pnpm build
+```
+
 ### 安装扩展
 
 1. 打开 Chrome 浏览器，访问 `chrome://extensions`
