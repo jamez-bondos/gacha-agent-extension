@@ -2,8 +2,10 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "outDir": "./",
-    "noEmit": false
+    "noEmit": false,
+    "declaration": false,
+    "esModuleInterop": true
   },
   "include": ["manifest.ts"],
-  "exclude": [""]
+  "exclude": []
 }

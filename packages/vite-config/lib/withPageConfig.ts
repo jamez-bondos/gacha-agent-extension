@@ -23,7 +23,7 @@ export const withPageConfig = (config: UserConfig) =>
           'process.env': env,
         },
         base: '',
-        plugins: [react(), IS_DEV && watchRebuildPlugin({ refresh: true })],
+        plugins: [react(), IS_DEV && watchRebuildPlugin({ refresh: true })].filter(Boolean),
         build: {
           sourcemap: IS_DEV,
           minify: IS_PROD,

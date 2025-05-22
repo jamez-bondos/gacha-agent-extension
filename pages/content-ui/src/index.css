@@ -1,0 +1,14 @@
+@import '@extension/ui/lib/global.css';
+@import './globals.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* You can add global styles to this file, and also import other style files */
+
+/* Ensure the UI root has a default display if needed, though App.tsx controls its own background */
+#gacha-agent-sr-ui-root {
+  /* Example: ensure it takes up space if App.tsx content is delayed or fails */
+  /* min-height: 100vh; */ 
+} 

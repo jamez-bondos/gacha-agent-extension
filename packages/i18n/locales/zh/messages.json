@@ -1,7 +1,7 @@
 {
   "extensionDescription": {
     "description": "Extension description",
-    "message": "A lightweight Chrome extension that streamlines and batches image-generation requests on Sora."
+    "message": "GachaAgent 是一款 Chrome 插件工具，可在 Sora 平台上以“抽卡”的方式批量调用图像生成功能，助您高效获取灵感。"
   },
   "extensionName": {
     "description": "Extension name",

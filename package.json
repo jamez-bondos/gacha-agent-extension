@@ -1,13 +1,13 @@
 {
-  "name": "chrome-extension-boilerplate-react-vite",
-  "version": "0.4.3",
-  "description": "chrome extension boilerplate",
+  "name": "gacha-agent-extension",
+  "version": "0.1.0",
+  "description": "GachaAgent - A lightweight Chrome extension that streamlines and batches image-generation requests on Sora.",
   "license": "MIT",
   "private": true,
   "sideEffects": false,
   "repository": {
     "type": "git",
-    "url": "https://github.com/Jonghakseo/chrome-extension-boilerplate-react-vite.git"
+    "url": "https://github.com/jamez-bondos/gacha-agent-extension.git"
   },
   "type": "module",
   "scripts": {
@@ -39,8 +39,10 @@
     "module-manager": "pnpm -F module-manager start"
   },
   "dependencies": {
+    "class-variance-authority": "^0.7.1",
     "react": "19.0.0",
-    "react-dom": "19.0.0"
+    "react-dom": "19.0.0",
+    "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
     "@eslint/compat": "^1.2.5",

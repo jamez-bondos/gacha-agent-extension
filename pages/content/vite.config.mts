@@ -13,7 +13,7 @@ export default withPageConfig({
     },
   },
   publicDir: resolve(rootDir, 'public'),
-  plugins: [IS_DEV && makeEntryPointPlugin()],
+  plugins: [/* IS_DEV && makeEntryPointPlugin() */],
   build: {
     lib: {
       name: 'ContentScript',
