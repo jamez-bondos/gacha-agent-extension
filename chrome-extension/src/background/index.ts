@@ -34,6 +34,7 @@ let appStatus: AppStatus = AppStatus.IDLE;
 let currentTask: ImageGenTask | null = null;
 let taskProcessingDelayMs: number = 2000;
 let currentAction: ChatAction | null = null;
+let currentDelayTimeout: NodeJS.Timeout | null = null; // 用于跟踪和取消延时
 
 // --- Utility Functions ---
 function generateTaskId(): string {
@@ -156,8 +157,28 @@ async function triggerNextTask() {
     const previousTaskJustCompleted = currentTask && (currentTask.status === 'SUCCEEDED' || currentTask.status === 'FAILED');
     if (previousTaskJustCompleted && taskProcessingDelayMs > 0) {
       console.log('Background: Delaying next task by ' + taskProcessingDelayMs + 'ms.');
-      await new Promise(resolve => setTimeout(resolve, taskProcessingDelayMs));
+      
+      // 使用可取消的延时
+      await new Promise<void>((resolve, reject) => {
+        currentDelayTimeout = setTimeout(() => {
+          currentDelayTimeout = null;
+          resolve();
+        }, taskProcessingDelayMs);
+      });
+      
+      // 延时后的完整状态检查
       if (appStatus !== AppStatus.RUNNING) {
+        console.log('Background: App status changed during delay, stopping task processing.');
+        return;
+      }
+      if (taskQueue.length === 0) {
+        console.log('Background: Task queue cleared during delay, stopping task processing.');
+        setAppStatus(AppStatus.IDLE);
+        return;
+      }
+      if (!soraTabId) {
+        console.log('Background: Sora tab unavailable after delay, stopping task processing.');
+        setAppStatus(AppStatus.IDLE);
         return;
       }
     }
@@ -166,6 +187,7 @@ async function triggerNextTask() {
     if (taskToProcess) {
       processTask(taskToProcess);
     } else {
+      console.log('Background: Task ' + nextTask.id + ' no longer available after delay, checking for other tasks.');
       triggerNextTask();
     }
   } else {
@@ -237,6 +259,13 @@ chrome.runtime.onMessage.addListener(
         case BackgroundActionType.STOP_PROCESSING: {
           const oldTaskCount = taskQueue.length;
           
+          // 取消正在进行的延时
+          if (currentDelayTimeout) {
+            clearTimeout(currentDelayTimeout);
+            currentDelayTimeout = null;
+            console.log('Background: Cancelled pending task delay due to stop processing.');
+          }
+          
           // 设置批量任务停止的 action
           setAction(ChatActionType.BATCH_STOPPED);
           
@@ -251,7 +280,7 @@ chrome.runtime.onMessage.addListener(
         case BackgroundActionType.SET_TASK_DELAY: {
           const { delay } = uiActionMessage.payload as SetTaskDelayPayload;
           taskProcessingDelayMs = delay * 1000;
-          sendResponse({ success: true, message: 'Task delay set to ' + taskProcessingDelayMs + 's.' });
+          sendResponse({ success: true, message: 'Task delay set to ' + (taskProcessingDelayMs / 1000) + 's.' });
           return true;
         }
         default:
@@ -383,6 +412,14 @@ chrome.runtime.onMessage.addListener(
 chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
   if (tabId === soraTabId) {
     soraTabId = null;
+    
+    // 取消正在进行的延时
+    if (currentDelayTimeout) {
+      clearTimeout(currentDelayTimeout);
+      currentDelayTimeout = null;
+      console.log('Background: Cancelled pending task delay due to tab closure.');
+    }
+    
     if (appStatus === AppStatus.RUNNING) {
       // 设置批量任务停止的 action
       setAction(ChatActionType.BATCH_STOPPED);
