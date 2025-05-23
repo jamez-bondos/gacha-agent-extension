@@ -34,24 +34,24 @@ class AppSettingsStorage {
   }
 
   async updateGeneralDelay(delay: number): Promise<void> {
-    const settings = await this.getSettings();
-    settings.settings.general.delay = delay;
-    await this.saveSettings(settings);
+    const appSettings = await this.getSettings();
+    appSettings.settings.general.delay = delay;
+    await this.saveSettings(appSettings);
   }
 
   async updateSidebarMode(mode: 'floating' | 'embedded'): Promise<void> {
-    const settings = await this.getSettings();
-    if (!settings.settings.ui) {
-        settings.settings.ui = { sidebarMode: mode };
+    const appSettings = await this.getSettings();
+    if (!appSettings.settings.ui) {
+      appSettings.settings.ui = { sidebarMode: mode };
     } else {
-        settings.settings.ui.sidebarMode = mode;
+      appSettings.settings.ui.sidebarMode = mode;
     }
-    await this.saveSettings(settings);
+    await this.saveSettings(appSettings);
   }
 
   async getSidebarMode(): Promise<'floating' | 'embedded'> {
-    const settings = await this.getSettings();
-    return settings.settings.ui?.sidebarMode || defaultSettings.settings.ui.sidebarMode;
+    const appSettings = await this.getSettings();
+    return appSettings.settings.ui?.sidebarMode || defaultSettings.settings.ui.sidebarMode;
   }
 }
 

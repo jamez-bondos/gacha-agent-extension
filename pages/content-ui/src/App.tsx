@@ -127,18 +127,8 @@ const App: React.FC = () => {
   useEffect(() => {
     const initializeApp = async () => {
       // Load initial settings
-      const settings = await appSettingsStorage.getSettings();
-      setTaskProcessingDelay(settings.settings.general.delay);
-      
-      // 获取并同步侧边栏模式到Content Script
-      const currentSidebarMode = settings.settings.ui?.sidebarMode || 'floating';
-      console.log('[Content UI] Syncing initial sidebar mode to Content Script:', currentSidebarMode);
-      
-      // 通知Content Script当前保存的模式
-      window.postMessage({
-        type: ContentUIToContentScriptMessageType.SET_SIDEBAR_MODE, 
-        payload: { mode: currentSidebarMode }
-      }, '*');
+      const appSettings = await appSettingsStorage.getSettings();
+      setTaskProcessingDelay(appSettings.settings.general.delay);
       
       setIsInitialized(true);
     };

@@ -26,9 +26,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onTaskDe
     
     // Load saved settings when modal opens
     if (isOpen) {
-      appSettingsStorage.getSettings().then(settings => {
-        setTaskDelay(settings.settings.general.delay);
-        onTaskDelayChange(settings.settings.general.delay);
+      appSettingsStorage.getSettings().then(appSettings => {
+        setTaskDelay(appSettings.settings.general.delay);
+        onTaskDelayChange(appSettings.settings.general.delay);
       });
     }
   }, [isOpen]);
