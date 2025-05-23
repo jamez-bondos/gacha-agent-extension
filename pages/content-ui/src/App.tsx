@@ -129,6 +129,17 @@ const App: React.FC = () => {
       // Load initial settings
       const settings = await appSettingsStorage.getSettings();
       setTaskProcessingDelay(settings.settings.general.delay);
+      
+      // 获取并同步侧边栏模式到Content Script
+      const currentSidebarMode = settings.settings.ui?.sidebarMode || 'floating';
+      console.log('[Content UI] Syncing initial sidebar mode to Content Script:', currentSidebarMode);
+      
+      // 通知Content Script当前保存的模式
+      window.postMessage({
+        type: ContentUIToContentScriptMessageType.SET_SIDEBAR_MODE, 
+        payload: { mode: currentSidebarMode }
+      }, '*');
+      
       setIsInitialized(true);
     };
 
@@ -191,13 +202,22 @@ const App: React.FC = () => {
     }, '*');
   };
 
-  const handleToggleSidebarMode = (newMode: 'floating' | 'embedded') => {
+  const handleToggleSidebarMode = async (newMode: 'floating' | 'embedded') => {
     console.log('[Content UI] handleToggleSidebarMode called with:', newMode);
-    // 改为直接通信
-    window.postMessage({
-      type: ContentUIToContentScriptMessageType.SET_SIDEBAR_MODE,
-      payload: { mode: newMode }
-    }, '*');
+    
+    try {
+      // 首先保存到 storage
+      await appSettingsStorage.updateSidebarMode(newMode);
+      console.log('[Content UI] Sidebar mode saved to storage:', newMode);
+      
+      // 然后通知 Content Script 应用新模式
+      window.postMessage({
+        type: ContentUIToContentScriptMessageType.SET_SIDEBAR_MODE,
+        payload: { mode: newMode }
+      }, '*');
+    } catch (error) {
+      console.error('[Content UI] Error saving sidebar mode:', error);
+    }
   };
 
   const handleCloseUI = () => {
