@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Settings, X, LayoutPanelLeft, LayoutPanelTop } from 'lucide-react';
 import { t } from '@extension/i18n';
 import { appSettingsStorage } from '../lib/storage';
+import { SimpleTooltip } from './ui/simple-tooltip';
 
 interface HeaderProps {
   onOpenSettings: () => void;
@@ -42,25 +43,32 @@ const Header: React.FC<HeaderProps> = ({ onOpenSettings, onClose, onToggleSideba
       </div>
 
       <div className="flex items-center space-x-1">
-        <button
-          onClick={handleToggleSidebarMode}
-          className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full"
-          aria-label={`Switch to ${sidebarMode === 'floating' ? 'embedded' : 'floating'} mode`}
-          title={`Current mode: ${sidebarMode}. Click to switch to ${sidebarMode === 'floating' ? 'embedded' : 'floating'}.`}>
-          <ToggleModeIcon size={18} />
-        </button>
-        <button
-          onClick={onOpenSettings}
-          className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full"
-          aria-label="Open settings">
-          <Settings size={18} />
-        </button>
-        <button
-          onClick={onClose}
-          className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full"
-          aria-label="Close">
-          <X size={18} />
-        </button>
+        <SimpleTooltip content={sidebarMode === 'floating' ? '嵌入模式' : '悬浮模式'}>
+          <button
+            onClick={handleToggleSidebarMode}
+            className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full"
+            aria-label={`Switch to ${sidebarMode === 'floating' ? 'embedded' : 'floating'} mode`}>
+            <ToggleModeIcon size={18} />
+          </button>
+        </SimpleTooltip>
+        
+        <SimpleTooltip content="设置">
+          <button
+            onClick={onOpenSettings}
+            className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full"
+            aria-label="Open settings">
+            <Settings size={18} />
+          </button>
+        </SimpleTooltip>
+        
+        <SimpleTooltip content="关闭">
+          <button
+            onClick={onClose}
+            className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full"
+            aria-label="Close">
+            <X size={18} />
+          </button>
+        </SimpleTooltip>
       </div>
     </header>
   );
