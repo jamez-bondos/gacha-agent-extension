@@ -169,3 +169,47 @@ export type BackgroundMessageFromContent =
   | { type: BackgroundUpdateFromContent.TASK_SUBMITTED_TO_SR; payload: TaskSubmittedToSoraPayload }
   | { type: BackgroundUpdateFromContent.TASK_STATUS_UPDATE; payload: TaskStatusUpdatePayload }
   | { type: BackgroundUpdateFromContent.PAGE_INTERACTION_FAILED; payload: PageInteractionFailedPayload };
+
+// ============== Content UI ↔ Content Script 直接通信 ============== //
+
+export enum ContentUIToContentScriptMessageType {
+  TOGGLE_UI = 'CS_TOGGLE_UI',
+  SET_SIDEBAR_MODE = 'CS_SET_SIDEBAR_MODE',
+  SEND_TO_BACKGROUND = 'CS_SEND_TO_BACKGROUND', // 转发给Background的消息
+}
+
+export enum ContentScriptToContentUIMessageType {
+  FROM_BACKGROUND = 'UI_FROM_BACKGROUND', // 从Background转发的消息
+  SIDEBAR_MODE_APPLIED = 'UI_SIDEBAR_MODE_APPLIED',
+  COMMUNICATION_ERROR = 'UI_COMMUNICATION_ERROR',
+}
+
+export interface SendToBackgroundPayload {
+  message: UiMessageToBackground;
+  requestId?: string; // 可选的请求ID，用于响应匹配
+}
+
+export interface SetSidebarModePayload {
+  mode: 'floating' | 'embedded';
+}
+
+export interface FromBackgroundPayload {
+  message: BackgroundMessageToApp;
+  requestId?: string;
+}
+
+export interface CommunicationErrorPayload {
+  error: string;
+  originalMessage?: any;
+  requestId?: string;
+}
+
+export type ContentUIMessage = 
+  | { type: ContentUIToContentScriptMessageType.TOGGLE_UI }
+  | { type: ContentUIToContentScriptMessageType.SET_SIDEBAR_MODE; payload: SetSidebarModePayload }
+  | { type: ContentUIToContentScriptMessageType.SEND_TO_BACKGROUND; payload: SendToBackgroundPayload };
+
+export type ContentScriptMessage = 
+  | { type: ContentScriptToContentUIMessageType.FROM_BACKGROUND; payload: FromBackgroundPayload }
+  | { type: ContentScriptToContentUIMessageType.SIDEBAR_MODE_APPLIED; payload: { mode: 'floating' | 'embedded' } }
+  | { type: ContentScriptToContentUIMessageType.COMMUNICATION_ERROR; payload: CommunicationErrorPayload };

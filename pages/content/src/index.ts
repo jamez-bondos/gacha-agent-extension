@@ -4,6 +4,11 @@ import {
   ContentScriptActionType,
   BackgroundUpdateFromContent,
   BackgroundToAppMessageType as UIMessageType,
+  ContentUIMessage,
+  ContentScriptMessage,
+  ContentUIToContentScriptMessageType,
+  ContentScriptToContentUIMessageType,
+  UiToBackgroundMessageType,
 } from '@extension/shared/lib/types';
 
 import type {
@@ -18,6 +23,8 @@ import type {
   AppState,
   ApplySidebarModePayload,
   TaskStatus,
+  SendToBackgroundPayload,
+  SetSidebarModePayload,
 } from '@extension/shared/lib/types';
 import { appSettingsStorage } from '../../content-ui/src/lib/storage';
 
@@ -30,6 +37,479 @@ const GACHA_AGENT_SR_TRIGGER_BUTTON_ID = 'gacha-agent-sr-trigger-button';
 const SIDEBAR_WIDTH = '400px';
 let sidebarMode: 'floating' | 'embedded' = 'floating'; // Will be updated from storage
 const EMBEDDED_BODY_CLASS = 'gacha-agent-sr-embedded-active';
+
+// --- MessageBridge Class for unified communication ---
+class MessageBridge {
+  private backgroundListener: ((message: any, sender: any, sendResponse: any) => void) | null = null;
+  private heartbeatInterval: NodeJS.Timeout | null = null;
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 3;
+  private lastSuccessfulHeartbeat = Date.now();
+  private consecutiveFailures = 0;
+  private isTabVisible = !document.hidden;
+  private lastVisibilityChange = Date.now();
+
+  constructor() {
+    console.log('[MessageBridge] Initializing MessageBridge...');
+    this.setupBackgroundListener();
+    this.setupWindowListener();
+    this.setupVisibilityHandler();
+    this.setupPageEventListeners();
+    this.startHeartbeat();
+    console.log('[MessageBridge] MessageBridge initialization complete');
+  }
+
+  // 设置Background消息监听
+  private setupBackgroundListener() {
+    // 移除旧监听器
+    if (this.backgroundListener) {
+      chrome.runtime.onMessage.removeListener(this.backgroundListener);
+    }
+
+    this.backgroundListener = (message: ContentScriptMessageFromBackground | UIMessage, sender, sendResponse) => {
+      if (sender.id !== chrome.runtime.id) return;
+
+      console.log('[MessageBridge] Received from Background:', message.type);
+
+      // 处理原有的Content Script消息
+      if (message.type === ContentScriptActionType.EXECUTE_TASK) {
+        const taskPayload = (message as Extract<ContentScriptMessageFromBackground, { type: ContentScriptActionType.EXECUTE_TASK }>).payload;
+        console.log('[Content Script] Received EXECUTE_TASK:', taskPayload.task.id);
+        currentExecutingTask = taskPayload.task;
+        executeTaskOnPage(taskPayload.task);
+        return false;
+      }
+
+      // 转发给Content UI的消息
+      if (message.type === UIMessageType.APP_STATE_UPDATE) {
+        this.forwardToContentUI({
+          type: ContentScriptToContentUIMessageType.FROM_BACKGROUND,
+          payload: { message }
+        });
+        return false;
+      }
+
+      // 处理APPLY_SIDEBAR_MODE（从Background来的直接命令）
+      if (message.type === ContentScriptActionType.APPLY_SIDEBAR_MODE) {
+        const modePayload = (message as Extract<ContentScriptMessageFromBackground, { type: ContentScriptActionType.APPLY_SIDEBAR_MODE }>).payload;
+        console.log('[Content Script] Received APPLY_SIDEBAR_MODE:', modePayload.mode);
+        applyModeChange(modePayload.mode);
+        sendResponse({
+            status: 'content_script_mode_change_processed',
+            newModeApplied: sidebarMode
+        });
+        return true;
+      }
+
+      // 处理PING消息
+      if (message.type === 'PING') {
+        sendResponse({ status: 'pong' });
+        return true;
+      }
+
+      return false;
+    };
+
+    chrome.runtime.onMessage.addListener(this.backgroundListener);
+    console.log('[MessageBridge] Background listener setup complete');
+  }
+
+  // 设置窗口消息监听（来自Content UI）
+  private setupWindowListener() {
+    window.addEventListener('message', (event) => {
+      if (event.source !== window) return;
+
+      const data = event.data as { type: string; payload?: any };
+
+      // 处理原有的UI toggle消息
+      if (data.type === 'GACHA_AGENT_SR_TOGGLE_UI') {
+        toggleUI();
+        return;
+      }
+
+      // 处理新的Content UI消息
+      if (Object.values(ContentUIToContentScriptMessageType).includes(data.type as ContentUIToContentScriptMessageType)) {
+        this.handleContentUIMessage(data as ContentUIMessage);
+      }
+    });
+
+    console.log('[MessageBridge] Window listener setup complete');
+  }
+
+  // 处理来自Content UI的消息
+  private async handleContentUIMessage(message: ContentUIMessage) {
+    console.log('[MessageBridge] Received from Content UI:', message.type);
+
+    switch (message.type) {
+      case ContentUIToContentScriptMessageType.TOGGLE_UI:
+        toggleUI();
+        break;
+
+      case ContentUIToContentScriptMessageType.SET_SIDEBAR_MODE:
+        const { mode } = message.payload;
+        applyModeChange(mode);
+        this.forwardToContentUI({
+          type: ContentScriptToContentUIMessageType.SIDEBAR_MODE_APPLIED,
+          payload: { mode }
+        });
+        break;
+
+      case ContentUIToContentScriptMessageType.SEND_TO_BACKGROUND:
+        await this.forwardToBackground(message.payload);
+        break;
+    }
+  }
+
+  // 转发消息给Background
+  private async forwardToBackground(payload: SendToBackgroundPayload) {
+    const { message, requestId } = payload;
+
+    try {
+      console.log('[MessageBridge] Forwarding to Background:', message.type);
+      const response = await chrome.runtime.sendMessage(message);
+
+      // 如果Background有直接响应，转发回Content UI
+      if (response && requestId) {
+        this.forwardToContentUI({
+          type: ContentScriptToContentUIMessageType.FROM_BACKGROUND,
+          payload: { 
+            message: { type: 'BACKGROUND_RESPONSE', payload: response },
+            requestId 
+          }
+        });
+      }
+
+      this.reconnectAttempts = 0; // 成功时重置重连计数
+    } catch (error: any) {
+      console.error('[MessageBridge] Error forwarding to Background:', error);
+      
+      // 尝试重连
+      if (this.reconnectAttempts < this.maxReconnectAttempts) {
+        this.reconnectAttempts++;
+        console.log(`[MessageBridge] Attempting reconnect ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
+        
+        setTimeout(() => {
+          this.rebuildConnection();
+          // 重试发送消息
+          this.forwardToBackground(payload);
+        }, 1000 * this.reconnectAttempts);
+      } else {
+        // 通知Content UI通信错误
+        this.forwardToContentUI({
+          type: ContentScriptToContentUIMessageType.COMMUNICATION_ERROR,
+          payload: {
+            error: error.message || 'Failed to communicate with background',
+            originalMessage: message,
+            requestId
+          }
+        });
+      }
+    }
+  }
+
+  // 转发消息给Content UI
+  private forwardToContentUI(message: ContentScriptMessage) {
+    window.postMessage({
+      type: 'GACHA_AGENT_FROM_CONTENT_SCRIPT',
+      payload: message
+    }, '*');
+  }
+
+  // 设置可见性变化处理（Tab切换检测）
+  private setupVisibilityHandler() {
+    document.addEventListener('visibilitychange', () => {
+      const wasVisible = this.isTabVisible;
+      this.isTabVisible = !document.hidden;
+      this.lastVisibilityChange = Date.now();
+
+      if (!wasVisible && this.isTabVisible) {
+        // Tab从隐藏变为可见
+        console.log('[MessageBridge] Tab activated after being hidden, initiating recovery');
+        this.handleTabActivation();
+      } else if (wasVisible && !this.isTabVisible) {
+        // Tab从可见变为隐藏
+        console.log('[MessageBridge] Tab hidden, reducing heartbeat frequency');
+        this.adjustHeartbeatForVisibility();
+      }
+    });
+
+    // 监听页面focus/blur事件作为额外的检测
+    window.addEventListener('focus', () => {
+      console.log('[MessageBridge] Window focused, checking connection');
+      // 避免与tab激活检查重复，只在没有最近进行过检查时才执行
+      const timeSinceLastCheck = Date.now() - this.lastSuccessfulHeartbeat;
+      if (this.isTabVisible && timeSinceLastCheck > 10000) { // 10秒内没有检查过才执行
+        this.checkConnection();
+      }
+    });
+
+    window.addEventListener('blur', () => {
+      console.log('[MessageBridge] Window blurred');
+    });
+  }
+
+  // 设置页面事件监听器
+  private setupPageEventListeners() {
+    // 监听页面卸载
+    window.addEventListener('beforeunload', () => {
+      console.log('[MessageBridge] Page unloading, cleaning up');
+      this.destroy();
+    });
+
+    // 监听网络状态变化
+    window.addEventListener('online', () => {
+      console.log('[MessageBridge] Network back online, checking connection');
+      this.consecutiveFailures = 0;
+      this.checkConnection();
+    });
+
+    window.addEventListener('offline', () => {
+      console.log('[MessageBridge] Network offline detected');
+    });
+  }
+
+  // 处理Tab激活
+  private async handleTabActivation() {
+    try {
+      console.log('[MessageBridge] Tab activated, checking connection status');
+      
+      // 延迟一点时间让页面完全激活
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // 检查连接状态
+      const isConnected = await this.checkConnection();
+      
+      if (!isConnected) {
+        console.log('[MessageBridge] Connection lost during tab switch, rebuilding');
+        await this.rebuildConnection();
+      } else {
+        // 重新同步状态确保UI是最新的
+        console.log('[MessageBridge] Connection intact, syncing state');
+        await this.syncState();
+      }
+      
+      // 无论连接状态如何，都重新调整心跳频率（因为tab状态已改变）
+      this.adjustHeartbeatForVisibility();
+    } catch (error) {
+      console.error('[MessageBridge] Error during tab activation handling:', error);
+      await this.rebuildConnection();
+    }
+  }
+
+  // 根据可见性调整心跳频率
+  private adjustHeartbeatForVisibility() {
+    console.log('[MessageBridge] Adjusting heartbeat frequency...');
+    
+    // 安全清理旧的心跳定时器
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+      console.log('[MessageBridge] Cleared existing heartbeat interval');
+    }
+    
+    // 根据tab可见性调整心跳频率
+    const heartbeatInterval = this.isTabVisible ? 30000 : 60000; // 可见时30秒，隐藏时60秒
+    console.log(`[MessageBridge] Setting new heartbeat to ${heartbeatInterval/1000}s (visible: ${this.isTabVisible})`);
+    
+    this.heartbeatInterval = setInterval(async () => {
+      console.log('[MessageBridge] Heartbeat timer triggered');
+      await this.performHeartbeat();
+    }, heartbeatInterval);
+  }
+
+  // 检查连接状态
+  private async checkConnection(): Promise<boolean> {
+    try {
+      const startTime = Date.now();
+      
+      // 创建超时Promise
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Connection check timeout')), 5000); // 5秒超时
+      });
+      
+      // 发送PING消息
+      const pingPromise = chrome.runtime.sendMessage({ type: 'PING' });
+      
+      // 等待任一Promise完成
+      await Promise.race([pingPromise, timeoutPromise]);
+      
+      const responseTime = Date.now() - startTime;
+      
+      this.lastSuccessfulHeartbeat = Date.now();
+      this.consecutiveFailures = 0;
+      
+      console.log(`[MessageBridge] Heartbeat successful (${responseTime}ms)`);
+      return true;
+    } catch (error: any) {
+      this.consecutiveFailures++;
+      
+      console.warn(`[MessageBridge] Heartbeat failed (attempt ${this.consecutiveFailures}):`, {
+        message: error.message,
+        name: error.name,
+        stack: error.stack?.split('\n')[0] // 只显示第一行stack
+      });
+      return false;
+    }
+  }
+
+  // 心跳检测 - 统一的连接检测机制
+  private startHeartbeat() {
+    console.log('[MessageBridge] Starting heartbeat mechanism');
+    this.adjustHeartbeatForVisibility();
+  }
+
+  // 执行心跳检测
+  private async performHeartbeat(): Promise<void> {
+    console.log('[MessageBridge] Performing heartbeat check...');
+    
+    const isConnected = await this.checkConnection();
+    
+    if (!isConnected) {
+      console.warn(`[MessageBridge] Heartbeat failed (${this.consecutiveFailures} consecutive failures)`);
+      
+      // 单次失败或连续2次失败时触发重连
+      if (this.consecutiveFailures === 1 || this.consecutiveFailures >= 2) {
+        console.warn('[MessageBridge] Triggering connection rebuild due to heartbeat failure');
+        await this.rebuildConnection();
+      }
+    } else {
+      // 连接成功，确保重连计数被重置
+      if (this.reconnectAttempts > 0) {
+        console.log('[MessageBridge] Connection restored, resetting reconnect attempts');
+        this.reconnectAttempts = 0;
+      }
+    }
+  }
+
+  // 重建连接
+  private isReconnecting = false; // 添加重连状态标记
+  
+  private async rebuildConnection() {
+    // 防止并发重建
+    if (this.isReconnecting) {
+      console.log('[MessageBridge] Already reconnecting, skipping duplicate rebuild request');
+      return;
+    }
+    
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      console.warn(`[MessageBridge] Max reconnection attempts reached (${this.maxReconnectAttempts}), will reset and try again in 30s`);
+      // 重置重连计数，30秒后允许重新尝试
+      setTimeout(() => {
+        console.log('[MessageBridge] Resetting reconnection attempts, ready for new attempts');
+        this.reconnectAttempts = 0;
+        this.consecutiveFailures = 0;
+      }, 30000);
+      return;
+    }
+    
+    this.isReconnecting = true;
+    this.reconnectAttempts++;
+    
+    console.log(`[MessageBridge] Rebuilding connection (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+    
+    try {
+      // 清理旧的监听器
+      if (this.backgroundListener) {
+        chrome.runtime.onMessage.removeListener(this.backgroundListener);
+        this.backgroundListener = null;
+        console.log('[MessageBridge] Removed old background listener');
+      }
+      
+      // 等待一段时间再重试，使用指数退避
+      const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts - 1), 10000);
+      console.log(`[MessageBridge] Waiting ${delay}ms before reconnection attempt`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      
+      // 重新设置监听器
+      this.setupBackgroundListener();
+      console.log('[MessageBridge] Background listener re-established');
+      
+      // 测试连接
+      const isConnected = await this.checkConnection();
+      
+      if (isConnected) {
+        console.log('[MessageBridge] Connection rebuilt successfully');
+        this.reconnectAttempts = 0; // 重置重试计数
+        this.consecutiveFailures = 0;
+        
+        // 重新同步状态
+        await this.syncState();
+        
+        // 通知Content UI连接已恢复
+        this.forwardToContentUI({
+          type: ContentScriptToContentUIMessageType.FROM_BACKGROUND,
+          payload: {
+            message: {
+              type: 'CONNECTION_RESTORED',
+              payload: { restoredAt: Date.now() }
+            }
+          }
+        });
+      } else {
+        console.warn('[MessageBridge] Connection rebuild failed, will retry on next heartbeat');
+      }
+    } catch (error: any) {
+      console.error('[MessageBridge] Error during connection rebuild:', error);
+    } finally {
+      this.isReconnecting = false;
+    }
+  }
+
+  // 同步状态
+  private async syncState() {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: UiToBackgroundMessageType.GET_APP_STATE
+      });
+
+      if (response) {
+        this.forwardToContentUI({
+          type: ContentScriptToContentUIMessageType.FROM_BACKGROUND,
+          payload: {
+            message: {
+              type: UIMessageType.APP_STATE_UPDATE,
+              payload: response
+            }
+          }
+        });
+      }
+    } catch (error) {
+      console.error('[MessageBridge] Error syncing state:', error);
+    }
+  }
+
+
+
+  // 清理资源
+  public destroy() {
+    console.log('[MessageBridge] Destroying MessageBridge and cleaning up resources');
+    
+    // 清理心跳定时器
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+      console.log('[MessageBridge] Cleared heartbeat interval');
+    }
+    
+    // 清理背景监听器
+    if (this.backgroundListener) {
+      chrome.runtime.onMessage.removeListener(this.backgroundListener);
+      this.backgroundListener = null;
+      console.log('[MessageBridge] Removed background listener');
+    }
+    
+    // 重置状态
+    this.reconnectAttempts = 0;
+    this.consecutiveFailures = 0;
+    this.isReconnecting = false;
+    this.lastSuccessfulHeartbeat = Date.now();
+    
+    console.log('[MessageBridge] MessageBridge destroyed successfully');
+  }
+}
+
+// MessageBridge实例
+let messageBridge: MessageBridge | null = null;
 
 // --- DOM Element Getters/Creators ---
 function getGachaAgentUIRootElement(): HTMLElement | null {
@@ -398,13 +878,26 @@ function applyModeChange(newMode: 'floating' | 'embedded') {
 
 // --- Initialization ---
 function initGachaAgent() {
-  if (gachaAgentSRInitialized) return;
+  if (gachaAgentSRInitialized) {
+    // 重新初始化时重建MessageBridge
+    if (messageBridge) {
+      messageBridge.destroy();
+    }
+    messageBridge = new MessageBridge();
+    console.log('[Content Script] Re-initialization detected, MessageBridge rebuilt');
+    return;
+  }
+  
   gachaAgentSRInitialized = true;
 
   initializeSidebarMode().then(() => {
     injectFetchHook();
     injectGachaAgentUIStyles();
     injectGachaAgentUIHost();
+
+    // 初始化MessageBridge
+    messageBridge = new MessageBridge();
+    console.log('[Content Script] MessageBridge initialized');
 
     const readyMessagePayload: CSReadyPayload = { soraPageUrl: window.location.href };
     chrome.runtime

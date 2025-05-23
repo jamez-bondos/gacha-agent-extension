@@ -84,6 +84,12 @@ function broadcastAppStateToUI(specificUI?: (response?: any) => void) {
   if (soraTabId) {
     sendMessageToContentScript(soraTabId, message);
   }
+  
+  // 发送状态后清除action，避免重复处理
+  if (currentAction) {
+    console.log('Background: Clearing action after broadcast:', currentAction.type);
+    currentAction = null;
+  }
 }
 
 // --- App Status Management ---
@@ -248,18 +254,6 @@ chrome.runtime.onMessage.addListener(
           sendResponse({ success: true, message: 'Task delay set to ' + taskProcessingDelayMs + 's.' });
           return true;
         }
-        case BackgroundActionType.SET_TARGET_SIDEBAR_MODE: {
-          const { mode } = uiActionMessage.payload as SetTargetSidebarModePayload;
-          if (soraTabId) {
-            console.log(`Background: Forwarding SET_SIDEBAR_MODE (${mode}) to content script in tab ${soraTabId}`);
-            const messageToContent: ContentScriptMessageFromBackground = {
-              type: ContentScriptActionType.APPLY_SIDEBAR_MODE,
-              payload: { mode: mode },
-            };
-            sendMessageToContentScript(soraTabId, messageToContent);
-          }
-          return true;
-        }
         default:
           return false;
       }
@@ -373,6 +367,12 @@ chrome.runtime.onMessage.addListener(
           break;
       }
     } else {
+      // 处理PING消息
+      if (message.type === 'PING') {
+        sendResponse({ status: 'pong' });
+        return true;
+      }
+      
       console.warn('Background: Received message with unknown type structure', message);
     }
 
