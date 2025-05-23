@@ -27,6 +27,7 @@ import type {
   SetSidebarModePayload,
 } from '@extension/shared/lib/types';
 import { appSettingsStorage } from '../../content-ui/src/lib/storage';
+import { initializeUrlMonitoring, setupUrlMonitoring } from './url-monitoring';
 
 
 let currentExecutingTask: ImageGenTask | null = null;
@@ -55,6 +56,11 @@ class MessageBridge {
     this.setupWindowListener();
     this.setupVisibilityHandler();
     this.setupPageEventListeners();
+    
+    // Initialize URL monitoring
+    initializeUrlMonitoring();
+    setupUrlMonitoring();
+    
     this.startHeartbeat();
     console.log('[MessageBridge] MessageBridge initialization complete');
   }
