@@ -622,8 +622,8 @@ function injectGachaAgentUIStyles() {
       position: fixed;
       top: 150px;
       right: 0px;
-      width: 40px;
-      height: 40px;
+      width: 48px;
+      height: 48px;
       background-color: #ffffff;
       display: flex;
       align-items: center;
@@ -645,8 +645,8 @@ function injectGachaAgentUIStyles() {
     }
 
     #${GACHA_AGENT_SR_TRIGGER_BUTTON_ID} img {
-      width: 24px;
-      height: 24px;
+      width: 32px;
+      height: 32px;
       object-fit: contain;
     }
 
