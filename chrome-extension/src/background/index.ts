@@ -8,6 +8,7 @@ import {
   UiToBackgroundMessageType as BackgroundActionType,
   ChatActionType,
   ChatAction,
+  ClearTaskDetailsPayload,
 } from '@extension/shared/lib/types';
 import type {
   ImageGenTask,
@@ -17,6 +18,8 @@ import type {
   SetTaskDelayPayload,
   SetTargetSidebarModePayload,
   ExecuteTaskPayload,
+  ApplySidebarModePayload,
+  ClearTaskDetailsPayload,
   ContentScriptMessageFromBackground,
   TaskStatusUpdatePayload,
   TaskSubmittedToSoraPayload,
@@ -66,14 +69,14 @@ function sendMessageToContentScript(tabId: number, message: ContentScriptMessage
   }
 }
 
-function clearTaskDetailsInContentScript() {
+function clearTaskDetailsInContentScript(reason: 'BATCH_COMPLETED' | 'BATCH_STOPPED') {
   if (soraTabId) {
-    chrome.tabs.sendMessage(soraTabId, { 
-      type: 'CLEAR_TASK_DETAILS' 
-    }).catch(error => {
-      console.error('Background: Error clearing task details in CS:', error);
-    });
-    console.log('Background: Requested content script to clear task details');
+    const clearMessage: ContentScriptMessageFromBackground = {
+      type: ContentScriptActionType.CLEAR_TASK_DETAILS,
+      payload: { reason }
+    };
+    sendMessageToContentScript(soraTabId, clearMessage);
+    console.log(`Background: Requested content script to clear task details (reason: ${reason})`);
   }
 }
 
@@ -214,7 +217,7 @@ async function triggerNextTask() {
         setAction(ChatActionType.BATCH_COMPLETED);
         
         // 清除fetch hook中的任务详情
-        clearTaskDetailsInContentScript();
+        clearTaskDetailsInContentScript('BATCH_COMPLETED');
       }
       
       setAppStatus(AppStatus.IDLE);
@@ -284,7 +287,7 @@ chrome.runtime.onMessage.addListener(
           setAction(ChatActionType.BATCH_STOPPED);
           
           // 清除fetch hook中的任务详情
-          clearTaskDetailsInContentScript();
+          clearTaskDetailsInContentScript('BATCH_STOPPED');
           
           taskQueue = [];
           currentTask = null;

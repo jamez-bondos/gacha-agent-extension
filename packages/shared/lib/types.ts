@@ -117,7 +117,7 @@ export type BackgroundMessageToApp =
 // Actions sent FROM Background TO Content Script
 export enum ContentScriptActionType {
   EXECUTE_TASK = 'CS_EXECUTE_TASK', // Tell content script to perform a task
-  APPLY_SIDEBAR_MODE = 'CS_APPLY_SIDEBAR_MODE',
+  CLEAR_TASK_DETAILS = 'CS_CLEAR_TASK_DETAILS', // Clear fetch hook task details
 }
 
 export interface ExecuteTaskPayload {
@@ -128,9 +128,13 @@ export interface ApplySidebarModePayload {
   mode: 'floating' | 'embedded';
 }
 
+export interface ClearTaskDetailsPayload {
+  reason: 'BATCH_COMPLETED' | 'BATCH_STOPPED'; // Indicates why task details are being cleared
+}
+
 export type ContentScriptMessageFromBackground =
   | { type: ContentScriptActionType.EXECUTE_TASK; payload: ExecuteTaskPayload }
-  | { type: ContentScriptActionType.APPLY_SIDEBAR_MODE; payload: ApplySidebarModePayload };
+  | { type: ContentScriptActionType.CLEAR_TASK_DETAILS; payload: ClearTaskDetailsPayload };
 
 // Updates/Events sent FROM Content Script TO Background
 export enum BackgroundUpdateFromContent {

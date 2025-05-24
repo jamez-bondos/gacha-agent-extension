@@ -84,18 +84,6 @@ export class MessageBridge {
         return false;
       }
 
-      // 处理APPLY_SIDEBAR_MODE（从Background来的直接命令）
-      if (message.type === ContentScriptActionType.APPLY_SIDEBAR_MODE) {
-        const modePayload = (message as Extract<ContentScriptMessageFromBackground, { type: ContentScriptActionType.APPLY_SIDEBAR_MODE }>).payload;
-        console.log('[Content Script] Received APPLY_SIDEBAR_MODE:', modePayload.mode);
-        applyModeChange(modePayload.mode);
-        sendResponse({
-            status: 'content_script_mode_change_processed',
-            newModeApplied: modePayload.mode
-        });
-        return true;
-      }
-
       // 处理PING消息
       if (message.type === 'PING') {
         sendResponse({ status: 'pong' });
@@ -103,7 +91,10 @@ export class MessageBridge {
       }
 
       // 处理清除任务详情消息
-      if (message.type === 'CLEAR_TASK_DETAILS') {
+      if (message.type === ContentScriptActionType.CLEAR_TASK_DETAILS) {
+        const clearPayload = (message as Extract<ContentScriptMessageFromBackground, { type: ContentScriptActionType.CLEAR_TASK_DETAILS }>).payload;
+        console.log(`[MessageBridge] Received CLEAR_TASK_DETAILS (reason: ${clearPayload.reason})`);
+        
         // 导入并调用清除函数
         import('./task-executor').then(({ clearTaskDetails }) => {
           clearTaskDetails();
