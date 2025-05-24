@@ -66,6 +66,17 @@ function sendMessageToContentScript(tabId: number, message: ContentScriptMessage
   }
 }
 
+function clearTaskDetailsInContentScript() {
+  if (soraTabId) {
+    chrome.tabs.sendMessage(soraTabId, { 
+      type: 'CLEAR_TASK_DETAILS' 
+    }).catch(error => {
+      console.error('Background: Error clearing task details in CS:', error);
+    });
+    console.log('Background: Requested content script to clear task details');
+  }
+}
+
 function broadcastAppStateToUI(specificUI?: (response?: any) => void) {
   const appStateForUI: AppState = {
     appStatus,
@@ -201,6 +212,9 @@ async function triggerNextTask() {
       if (allCompleted) {
         // 设置批量任务完成的 action
         setAction(ChatActionType.BATCH_COMPLETED);
+        
+        // 清除fetch hook中的任务详情
+        clearTaskDetailsInContentScript();
       }
       
       setAppStatus(AppStatus.IDLE);
@@ -268,6 +282,9 @@ chrome.runtime.onMessage.addListener(
           
           // 设置批量任务停止的 action
           setAction(ChatActionType.BATCH_STOPPED);
+          
+          // 清除fetch hook中的任务详情
+          clearTaskDetailsInContentScript();
           
           taskQueue = [];
           currentTask = null;

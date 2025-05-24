@@ -69,3 +69,10 @@ export async function executeTaskOnPage(task: ImageGenTask): Promise<void> {
     setCurrentExecutingTask(null);
   }
 }
+/**
+ * Clear task details in fetch hook (called when entire batch completes or stops)
+ */
+export function clearTaskDetails(): void {
+  document.dispatchEvent(new CustomEvent('gachaAgentSRClearTaskDetails'));
+  console.log("[TaskExecutor] Cleared task details - batch processing ended");
+}

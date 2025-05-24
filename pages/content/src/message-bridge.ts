@@ -102,6 +102,16 @@ export class MessageBridge {
         return true;
       }
 
+      // 处理清除任务详情消息
+      if (message.type === 'CLEAR_TASK_DETAILS') {
+        // 导入并调用清除函数
+        import('./task-executor').then(({ clearTaskDetails }) => {
+          clearTaskDetails();
+        });
+        sendResponse({ status: 'task_details_cleared' });
+        return true;
+      }
+
       return false;
     };
 

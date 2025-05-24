@@ -7,11 +7,15 @@
   const originalFetch = window.fetch;
   let currentRatio = null;
   let currentQuantity = null; // Added to store quantity
+  let isExtensionTaskActive = false; // Flag to track if extension task is active
 
   console.log('[GachaAgent Hook File] Fetch hook initialized.');
 
+  // Listen for task details from extension
   document.addEventListener('gachaAgentSRSetTaskDetails', function (event) {
     if (event.detail) {
+      isExtensionTaskActive = true; // Mark extension task as active
+      
       if (event.detail.ratio) {
         currentRatio = event.detail.ratio;
         console.log('[GachaAgent Hook File] Ratio updated to:', currentRatio);
@@ -20,7 +24,17 @@
         currentQuantity = event.detail.quantity;
         console.log('[GachaAgent Hook File] Quantity updated to:', currentQuantity);
       }
+      
+      console.log('[GachaAgent Hook File] Extension task activated');
     }
+  });
+
+  // Listen for task completion or clearing
+  document.addEventListener('gachaAgentSRClearTaskDetails', function (event) {
+    currentRatio = null;
+    currentQuantity = null;
+    isExtensionTaskActive = false;
+    console.log('[GachaAgent Hook File] Task details cleared, extension task deactivated');
   });
 
   window.fetch = async function (url, options) {
@@ -35,66 +49,74 @@
       options.method.toUpperCase() === 'POST'
     ) {
       console.log('[GachaAgent Hook File] Intercepted /backend/video_gen POST.');
-      try {
-        let body = JSON.parse(options.body);
-        let modified = false;
+      
+      // Only modify if extension task is active
+      if (isExtensionTaskActive && (currentRatio || currentQuantity)) {
+        console.log('[GachaAgent Hook File] Extension task is active, applying modifications');
+        
+        try {
+          let body = JSON.parse(options.body);
+          let modified = false;
 
-        // Modify dimensions based on currentRatio
-        if (currentRatio) {
-          console.log('[GachaAgent Hook File] Current ratio setting:', currentRatio);
-          const originalWidth = parseInt(body.width, 10) || 480;
-          const originalHeight = parseInt(body.height, 10) || 480;
-          const benchmarkValue = Math.min(originalWidth, originalHeight);
-          let newWidth = originalWidth;
-          let newHeight = originalHeight;
+          // Modify dimensions based on currentRatio
+          if (currentRatio) {
+            console.log('[GachaAgent Hook File] Current ratio setting:', currentRatio);
+            const originalWidth = parseInt(body.width, 10) || 480;
+            const originalHeight = parseInt(body.height, 10) || 480;
+            const benchmarkValue = Math.min(originalWidth, originalHeight);
+            let newWidth = originalWidth;
+            let newHeight = originalHeight;
 
-          console.log(
-            `[GachaAgent Hook File] Original dimensions: w=${originalWidth}, h=${originalHeight}. Benchmark: ${benchmarkValue}. Target Ratio: ${currentRatio}`,
-          );
+            console.log(
+              `[GachaAgent Hook File] Original dimensions: w=${originalWidth}, h=${originalHeight}. Benchmark: ${benchmarkValue}. Target Ratio: ${currentRatio}`,
+            );
 
-          if (currentRatio === '1:1') {
-            newWidth = benchmarkValue;
-            newHeight = benchmarkValue;
-          } else if (currentRatio === '2:3') {
-            newWidth = benchmarkValue;
-            newHeight = Math.round((benchmarkValue * 3) / 2);
-          } else if (currentRatio === '3:2') {
-            newHeight = benchmarkValue;
-            newWidth = Math.round((benchmarkValue * 3) / 2);
+            if (currentRatio === '1:1') {
+              newWidth = benchmarkValue;
+              newHeight = benchmarkValue;
+            } else if (currentRatio === '2:3') {
+              newWidth = benchmarkValue;
+              newHeight = Math.round((benchmarkValue * 3) / 2);
+            } else if (currentRatio === '3:2') {
+              newHeight = benchmarkValue;
+              newWidth = Math.round((benchmarkValue * 3) / 2);
+            }
+
+            newWidth = Math.round(newWidth / 8) * 8;
+            newHeight = Math.round(newHeight / 8) * 8;
+
+            if (body.width !== newWidth || body.height !== newHeight) {
+              console.log(
+                `[GachaAgent Hook File] Modifying dimensions from w=${body.width}, h=${body.height} to w=${newWidth}, h=${newHeight}`,
+              );
+              body.width = newWidth;
+              body.height = newHeight;
+              modified = true;
+            }
           }
 
-          newWidth = Math.round(newWidth / 8) * 8;
-          newHeight = Math.round(newHeight / 8) * 8;
-
-          if (body.width !== newWidth || body.height !== newHeight) {
+          // Modify number_of_images based on currentQuantity
+          if (currentQuantity && body.number_of_images !== currentQuantity) {
             console.log(
-              `[GachaAgent Hook File] Modifying dimensions from w=${body.width}, h=${body.height} to w=${newWidth}, h=${newHeight}`,
+              `[GachaAgent Hook File] Modifying number_of_images from ${body.number_of_images} to ${currentQuantity}`,
             );
-            body.width = newWidth;
-            body.height = newHeight;
+            body.number_of_images = currentQuantity;
             modified = true;
           }
-        }
 
-        // Modify number_of_images based on currentQuantity
-        if (currentQuantity && body.number_of_images !== currentQuantity) {
-          console.log(
-            `[GachaAgent Hook File] Modifying number_of_images from ${body.number_of_images} to ${currentQuantity}`,
-          );
-          body.number_of_images = currentQuantity;
-          modified = true;
+          if (modified) {
+            modifiedOptions = { ...options, body: JSON.stringify(body) };
+            console.log('[GachaAgent Hook File] Modified body for POST:', body);
+          } else {
+            console.log(
+              '[GachaAgent Hook File] POST body not modified (no ratio/quantity change needed).',
+            );
+          }
+        } catch (e) {
+          console.error('[GachaAgent Hook File] Error modifying POST request body:', e);
         }
-
-        if (modified) {
-          modifiedOptions = { ...options, body: JSON.stringify(body) };
-          console.log('[GachaAgent Hook File] Modified body for POST:', body);
-        } else {
-          console.log(
-            '[GachaAgent Hook File] POST body not modified (no ratio/quantity change needed or values not set).',
-          );
-        }
-      } catch (e) {
-        console.error('[GachaAgent Hook File] Error modifying POST request body:', e);
+      } else {
+        console.log('[GachaAgent Hook File] Extension task not active, skipping modifications - user initiated request');
       }
     }
 
